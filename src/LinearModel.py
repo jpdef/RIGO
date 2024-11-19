@@ -8,24 +8,39 @@ from ModeSolver import QuasiGeostrophicModes
 from tqdm import tqdm
 from functools import partial
 
+def progressbar(dataset,desc):
+    """
+    Desc:
+    Helper function that wraps the tqdm library to make 
+    function call shorter
+    """
+    iterator = enumerate(dataset)
+    return tqdm(iterator,ascii=True,total=len(dataset),leave=True,desc=desc)
+
+
 class LinearModel:
     """
     Desc:
     A class to make general linear models with matrices
-    @ basis (function) takes parameters produce a second function
+    @ basis_function_generators (function) takes parameters produce a second function
             that is evaluate at a coordinate
     @ parameters (array) variables for the basis function e.g. k,l,m
     """
     
-    def __init__(self, basis , parameters):
+    def __init__(self, basis_function_generators , parameters):
         """
         Takes a vector of parameters to form columns of matrix
         and a vector of coordinates to form rows using the basis
         generator function
         """
-        self.basis         = basis
         self.parameters    = parameters
         self.columns = sum([len(x) for x in parameters])
+        self.basis_functions =[]
+        
+        
+        for k,bfg in enumerate(basis_function_generators):
+            for j,ps in progressbar(parameters[k],desc="Building basis"):
+                self.basis_functions.append( bfg(*ps) )
         
     def __add__(self,other):
         #Concatenate columns
@@ -37,37 +52,46 @@ class LinearModel:
     def model_matrix(self,coordinates):
         rows = len(coordinates)
         H = np.zeros(shape=(rows,self.columns))
-        cn = 0 
-        for i, b in enumerate(self.basis):
-            for j,p in enumerate(self.parameters[i]):
-                #print('Parameter vec',p)
-                f = b(*p)
-                H[:,cn] =  f(coordinates) 
-                cn +=1 
+        for cn, bf in enumerate(self.basis_functions):
+            H[:,cn] =  bf(coordinates) 
         
         return H
 
     
 class InternalWaveModel(LinearModel):
-    def __init__(self,parameters,N2,Z,scalar_gradient=None,free_surface=False,
+    def __init__(self,parameters, internal_wave_modes=None, stratification=None,
+                      scalar_gradient=None,free_surface=False,
                       latitude=30):
+        
         self.frequencies = np.unique(parameters['o'])
+        self.modes = np.unique(parameters['m'])
+        if internal_wave_modes is not None:
+            print('Setting modes to constructor modes')
+            self.iwmodes = internal_wave_modes
         
-        
-        self.iwmodes = self.generate_modes(N2,Z,scalar_gradient,free_surface,
+        elif stratification is not None:
+            N2 =stratification[1]; Z=stratification[0]
+            self.iwmodes = self.generate_modes(N2,Z,scalar_gradient,free_surface,
                                            latitude)
-        bases = [partial(iw_modal_sine,iw_modes=self.iwmodes),
-                 partial(iw_modal_cosine,iw_modes=self.iwmodes)]
+            
+        else:
+            print('InternalWaveModel needs internal wave modes or a stratification profile')
         
-        super().__init__(bases,[parameters]*2)
+        basis_function_generators = [partial(iw_modal_sine,iw_modes=self.iwmodes),
+                                     partial(iw_modal_cosine,iw_modes=self.iwmodes)]
+        
+        super().__init__(basis_function_generators,[parameters]*2)
     
     def generate_modes(self,N2,Z,scalar_gradient,free_surface,latitude):
         iwmodes = []
-        for frequency in self.frequencies:
+        print("Solving for modes....")
+        for frequency in tqdm(self.frequencies):
             m = InternalWaveModes(N2,Z,frequency,scalar_gradient=scalar_gradient,
                                   free_surface=free_surface,
-                                  latitude=latitude)
+                                  latitude=latitude,
+                                  num_modes=self.modes[-1])
             iwmodes.append(m)
+            
         return iwmodes
     
     
@@ -147,11 +171,11 @@ class BasisFunctions:
         return function
     
     
-def iw_modal_cosine(o,m,t,iw_modes):
+def iw_modal_cosine(o,m,t,K,iw_modes):
     #print('modal_cosine')
     freqs = np.array( [mode.frequency for mode in iw_modes] )
     i = np.argmin(abs( o - freqs ) )
-    K =  iw_modes[i].hwavenumber(m).real
+    #K =  iw_modes[i].hwavenumber(m).real
     k =  K*np.cos(t*np.pi/180)
     l =  K*np.sin(t*np.pi/180)
     
@@ -163,10 +187,11 @@ def iw_modal_cosine(o,m,t,iw_modes):
     return function
 
 
-def iw_modal_sine(o,m,t,iw_modes):
+def iw_modal_sine(o,m,t,K,iw_modes):
     freqs = np.array( [mode.frequency for mode in iw_modes] )
     i = np.argmin(abs( o - freqs ) )
-    K =  iw_modes[i].hwavenumber(m).real
+    #K =  iw_modes[i].hwavenumber(m).real
+    
     k =  K*np.cos(t*np.pi/180)
     l =  K*np.sin(t*np.pi/180)
     
