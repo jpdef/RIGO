@@ -3,6 +3,7 @@
 #Date : 7-25-2020
 
 import numpy as np
+from scipy.interpolate import interp1d
 from scipy.linalg import eig, eigh
 from scipy.integrate import trapz
 
@@ -45,7 +46,7 @@ class ModeSolver:
         self.mode_funcs = None
         
         
-    def solve(self):
+    def solve(self,num_modes):
         if self.free_surface:
             D2 = self.centered_2nd_derivative_fs()
             LH = self.LHM[:-1,:-1]
@@ -56,10 +57,11 @@ class ModeSolver:
         else:
             D2 = self.centered_2nd_derivative()
             LH = self.LHM[1:-1,1:-1]
-            eigval,eigvec = eigh(LH,-D2)
-            eigvec = np.vstack([self.bounds[0]*np.ones(self.npts),
+            intev = [self.npts-num_modes,self.npts-1]
+            eigval,eigvec = eigh(LH,-D2,subset_by_index=intev)
+            eigvec = np.vstack([self.bounds[0]*np.ones(num_modes),
                                eigvec,
-                               self.bounds[1]*np.ones(self.npts)])
+                               self.bounds[1]*np.ones(num_modes)])
             
         ind = np.argsort(eigval)[::-1]
         return [eigval[ind],eigvec[:,ind]]
@@ -159,25 +161,26 @@ class ModeSolver:
         
     
     def evaluate_mode(self,mode_number,z):
+        #print('evaluate_mode :: mode_number %d' % mode_number)
         if self.mode_funcs:
-            return self.mode_funcs[mode_number](z)
+            return self.mode_funcs[mode_number-1](z)
             
         else:
             self.interpolate_modes()
-            return  self.mode_funcs[mode_number](z)
+            return  self.mode_funcs[mode_number-1](z)
     
     
     def interpolate_modes(self):
         self.mode_funcs = []
         for n in range(self.modes.shape[1]):
-            import scipy
-            fun = scipy.interpolate.interp1d(self.domain,self.modes[:,n])
+            fun = interp1d(self.domain,self.modes[:,n])
             self.mode_funcs.append(fun)
     
     
 class InternalWaveModes(ModeSolver):
     def __init__(self,N2,Z,frequency,
                            latitude=30,
+                           num_modes=100,
                            scalar_gradient=None,
                            free_surface=False,
                            puvmodes=False):
@@ -185,6 +188,7 @@ class InternalWaveModes(ModeSolver):
         self.fo = coriolis(latitude)
         self.frequency = frequency
         self.N2 = N2; self.Z = Z
+        
         if ( self.frequency < self.fo ):
             print(frequency,self.fo)
             print("Frequency needs to be greater than coriolios")
@@ -204,7 +208,7 @@ class InternalWaveModes(ModeSolver):
         LH = np.diag(N2-F)
         super().__init__(Z,LH,boundary=[0,0],free_surface=free_surface)
         
-        self.hwavenumbers, self.modes = self.solve(frequency)
+        self.hwavenumbers, self.modes = self.solve(frequency,num_modes=num_modes)
         self.normalize()
         
         if puvmodes:
@@ -219,15 +223,36 @@ class InternalWaveModes(ModeSolver):
             #Multiple rows by each element in gradient
             self.modes = (self.modes.T * scalar_gradient).T
     
-    def solve(self,frequency=None):
-        eigvals, mode = super().solve()
+    
+    def solve(self,frequency,num_modes,phase_speed_cutoff=0.02):
+        """
+        Solves the matrix equation for mode shapes (eigenvectors) 
+        and the phase speeds ( eigenvalues )
+        @num_modes          : number of modes to calculate
+        @phase_speed_cutoff : upper limit for the eigenvlaues to incorporate.
+                              is the phase speed is too slow likely isn't physical
+                              this is equivalent to a vertical wavenumber cutoff
+        """
+        eigvals, modes = super().solve(num_modes)
         frequency = self.frequency if frequency is None else frequency
-        #eigval = np.sqrt((frequency**2 - self.fo**2)/
-        #                 ( (2*np.pi)**2 *eigval))
-        eigvals = eigvals[ ~np.iscomplex(eigvals)  ]
-        eigvals = eigvals[ eigvals > 0]
+        
+        if np.any(np.sqrt(abs(eigvals.real)) < phase_speed_cutoff):
+            #print('Some modes are higher than the phase speed cutoff')
+            mc = len(eigvals[(np.sqrt(eigvals) > phase_speed_cutoff)])
+            fcph = 3600*frequency/(2*np.pi)
+            #print('Frequency = %.2f [cph], Mode cutoff = %d' % (fcph,mc))
+        
+        #Check that eigenvalues are real and positive
+        eigvals = eigvals[ (~np.iscomplex(eigvals)) &  (eigvals > 0 )  ]
+        
+        #Check that eigenvalues are above phase speed cutoff
+        eigvals = eigvals[(np.sqrt(eigvals) > phase_speed_cutoff)]
+        #if np.any(np.sqrt(eigvals) > phase_speed_cutoff) :
+            #print(eigvals)
+        
         hwavenumber = np.sqrt( (frequency**2- self.fo**2) / eigvals)
-        return hwavenumber,mode
+        return hwavenumber,modes[:,:len(hwavenumber)]
+    
     
     def normalize(self):
         """
