@@ -22,9 +22,8 @@ sys.path.append('../src/lin_model')
 sys.path.append('../src/misc')
 
 import LinearModel as lm
-import iw_misc
-    
-def progressbar(self,dataset,desc):
+
+def progressbar(dataset,desc):
     """
     Desc:
     Helper function that wraps the tqdm library to make 
@@ -32,23 +31,30 @@ def progressbar(self,dataset,desc):
     """
     iterator = enumerate(dataset)
     return tqdm(iterator,ascii=True,total=len(dataset),leave=True,desc=desc)
-
+    
             
+"""
+TODO allow the Mode List Object to be passed into the simulator instead of stratification 
+vector this goes down another level to the internal wave model object
+"""
 class InternalWaveSimulator:
-    def __init__(self,physical_axis, parameters, stratification, dsdm):
+    def __init__(self,physical_axis, parameters, energy, internal_wave_modes):
         """
-        @ physical_axis   : random wave field is evaluated on these coordinates (x,y,z,t)
-        @ parameters      : wave parameter space (omega,mode,variance)
-        @ stratification  : stratification profile (n2,z) 
-        @ energy          : variance of the internal wave amplitudes
+        @ physical_axis        : random wave field is evaluated on these coordinates (x,y,z,t)
+        @ parameters           : wave parameter space (omega,mode,variance)
+        @ internal_wave_modes  : list of internal wave modes
+        @ energy               : variance of the internal wave amplitudes
         """
         self.parameters = parameters
         self.phys_ax = physical_axis 
+        self.internal_wave_modes = internal_wave_modes
         
-        self.DSDM = dsdm
-        self.N2 = stratification[1]; self.Z  = stratification[0];
-        self.IWM = lm.InternalWaveModel(parameters,self.N2,self.Z)
+        self.DSDM = energy
+        self.PWLM = lm.LinearModel([self.planar_sine,self.planar_cosine],
+                                   [self.parameters]*2)
+        self.MDLM = lm.LinearModel([self.mode_function],[self.parameters])
         
+        #self.IWM = lm.InternalWaveModel(parameters,internal_wave_modes=internal_wave_modes)
         
     def generate_amplitudes(self):
         """
@@ -67,17 +73,38 @@ class InternalWaveSimulator:
         """
         Desc:
         Runs foward problem with internal wave model and axis (x,y,z,t)
-        defined by D
+        Under normal conditions the number of parameters times the number of 
+        grid points exceeds the memory so we need to chunk the data 
+        num(o,m,theta) * num(x,y,z,t) > memory limit
+        
+        Assumption is that mode functions are most expensive so we first 
+        create a matrix PHI(z; o,m) that has all mode funcitons evaluated at 
+        every depth grid point.
+        PHI is (num(z) x num(omega * mode))
+        
+        Then we create plane wave matrix PSI (x,y,t ; o, k(m), theta), this is 
+        where we chunk the data in groups of (x,y,t) and compute those groups
+        of coordinates in a for loop. At the end of the for loop we create an
+        output vector Zeta(x,y,z,t) = ( PSI . PHI ) @ A
+        
         """
         
-        chunk_size = int(1e5)
-        pav_len = len(self.phys_ax.flatten())
-        out = np.zeros(pav_len)
-        for i in tqdm(np.arange(0,pav_len,chunk_size)):
-            j = i + chunk_size
-            out[i:j] = self.IWM.model_matrix(self.phys_ax.flatten()[i:j]) @ amp_vec.T
+        #Build Mode Matrix
+        self.PHI = self.MDLM.model_matrix(self.phys_ax[0,0,:,0].flatten())
         
-        self.phys_ax[field] =  out.reshape(self.phys_ax.shape) 
+        itr_coords = self.phys_ax[:,:,0,:].flatten()
+        ind = lambda x,xv : np.argmin( abs(x -  xv))
+        
+        #Multiply with Planar Waves
+        for i,itr_coord in progressbar(itr_coords,'Evaluating field...'):
+            PSI = self.PWLM.model_matrix(np.array([itr_coord]))
+            lh = PSI.shape[1]//2
+            zeta = (PSI[:,:lh] * self.PHI ) @ amp_vec.T[:lh]
+            zeta += (PSI[:,lh:] * self.PHI ) @ amp_vec.T[lh:]
+            ci = [ ind(itr_coord['x'],self.phys_ax['x'][:,0,0,0]),
+                   ind(itr_coord['y'],self.phys_ax['y'][0,:,0,0]),
+                   ind(itr_coord['t'],self.phys_ax['t'][0,0,0,:]) ]
+            self.phys_ax[ci[0],ci[1],:,ci[2]][field] = zeta
     
     
     def run(self):
@@ -85,7 +112,36 @@ class InternalWaveSimulator:
         amp_vec = np.concatenate([ self.amplitudes[0,:],self.amplitudes[1,:] ])
         self.run_forward(amp_vec)
         
-
     
 
+    def planar_cosine(self,o,m,t,K):
+        k =  K*np.cos(t*np.pi/180)
+        l =  K*np.sin(t*np.pi/180)
+        
+        def function(args):
+            arg = 2*np.pi*(k*args['x'] + l*args['y']- o*args['t'])
+            ret = np.cos(arg)
+            return ret.real
+        
+        return function
     
+    def planar_sine(self,o,m,t,K):
+        k =  K*np.cos(t*np.pi/180)
+        l =  K*np.sin(t*np.pi/180)
+        
+        def function(args):
+            arg = 2*np.pi*(k*args['x'] + l*args['y']- o*args['t'])
+            ret = np.sin(arg)
+            return ret.real
+        
+        return function
+
+    def mode_function(self,o,m,t,K):
+        freqs = np.array( [mode.frequency for mode in self.internal_wave_modes] )
+        i = np.argmin(abs( o - freqs ) )
+        
+        def function(args):
+            ret = self.internal_wave_modes[i].evaluate_mode(m,args['z'])
+            return ret.real
+        
+        return function
