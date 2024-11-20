@@ -236,22 +236,18 @@ class InternalWaveModes(ModeSolver):
         eigvals, modes = super().solve(num_modes)
         frequency = self.frequency if frequency is None else frequency
         
-        if np.any(np.sqrt(abs(eigvals.real)) < phase_speed_cutoff):
-            #print('Some modes are higher than the phase speed cutoff')
-            mc = len(eigvals[(np.sqrt(eigvals) > phase_speed_cutoff)])
-            fcph = 3600*frequency/(2*np.pi)
-            #print('Frequency = %.2f [cph], Mode cutoff = %d' % (fcph,mc))
-        
         #Check that eigenvalues are real and positive
-        eigvals = eigvals[ (~np.iscomplex(eigvals)) &  (eigvals > 0 )  ]
+        pdmask = (~np.iscomplex(eigvals)) &  (eigvals.real > 0 ) 
+        eigvals = eigvals[ pdmask ]
         
         #Check that eigenvalues are above phase speed cutoff
-        eigvals = eigvals[(np.sqrt(eigvals) > phase_speed_cutoff)]
-        #if np.any(np.sqrt(eigvals) > phase_speed_cutoff) :
-            #print(eigvals)
+        psmask = (np.sqrt(eigvals) > phase_speed_cutoff)
+        eigvals = eigvals[psmask]
         
         hwavenumber = np.sqrt( (frequency**2- self.fo**2) / eigvals)
-        return hwavenumber,modes[:,:len(hwavenumber)]
+        modes = modes[:,pdmask]
+        modes = modes[:,psmask]
+        return hwavenumber,modes
     
     
     def normalize(self):
