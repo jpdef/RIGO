@@ -48,13 +48,19 @@ class InternalWaveSimulator:
         self.parameters = parameters
         self.phys_ax = physical_axis 
         self.internal_wave_modes = internal_wave_modes
-        
         self.DSDM = energy
+        
+        #Linear Model Objects (allow for constructing design matrices on the fly)
+        #   PWLM = Plane wave linear model
+        #   MDLM = Modal linear model
         self.PWLM = lm.LinearModel([self.planar_sine,self.planar_cosine],
                                    [self.parameters]*2)
         self.MDLM = lm.LinearModel([self.mode_function],[self.parameters])
         
-        #self.IWM = lm.InternalWaveModel(parameters,internal_wave_modes=internal_wave_modes)
+        #Build Mode and Plane Wave Matrices
+        self.PHI = self.MDLM.model_matrix(self.phys_ax[0,0,:,0].flatten())
+        self.PSI = self.PWLM.model_matrix(self.phys_ax[:,:,0,:].flatten())
+        
         
     def generate_amplitudes(self):
         """
@@ -77,9 +83,9 @@ class InternalWaveSimulator:
         grid points exceeds the memory so we need to chunk the data 
         num(o,m,theta) * num(x,y,z,t) > memory limit
         
-        Assumption is that mode functions are most expensive so we first 
-        create a matrix PHI(z; o,m) that has all mode funcitons evaluated at 
-        every depth grid point.
+        Assumption is that mode functions are the most expensive computation
+        so we first create a matrix PHI(z; o,m) that has all mode funcitons
+        evaluated at every depth grid point.
         PHI is (num(z) x num(omega * mode))
         
         Then we create plane wave matrix PSI (x,y,t ; o, k(m), theta), this is 
@@ -89,23 +95,20 @@ class InternalWaveSimulator:
         
         """
         
-        #Build Mode Matrix
-        self.PHI = self.MDLM.model_matrix(self.phys_ax[0,0,:,0].flatten())
-        
         itr_coords = self.phys_ax[:,:,0,:].flatten()
         ind = lambda x,xv : np.argmin( abs(x -  xv))
         
         #Multiply with Planar Waves
         for i,itr_coord in progressbar(itr_coords,'Evaluating field...'):
-            PSI = self.PWLM.model_matrix(np.array([itr_coord]))
-            lh = PSI.shape[1]//2
-            zeta = (PSI[:,:lh] * self.PHI ) @ amp_vec.T[:lh]
-            zeta += (PSI[:,lh:] * self.PHI ) @ amp_vec.T[lh:]
+            zeta = self.PSI[i,:] * np.hstack([self.PHI,self.PHI]) @ amp_vec.T
+           
             ci = [ ind(itr_coord['x'],self.phys_ax['x'][:,0,0,0]),
                    ind(itr_coord['y'],self.phys_ax['y'][0,:,0,0]),
                    ind(itr_coord['t'],self.phys_ax['t'][0,0,0,:]) ]
+           
             self.phys_ax[ci[0],ci[1],:,ci[2]][field] = zeta
-    
+        
+        
     
     def run(self):
         self.amplitudes = self.generate_amplitudes()
