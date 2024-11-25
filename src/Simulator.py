@@ -102,11 +102,13 @@ class InternalWaveSimulator:
         for i,itr_coord in progressbar(itr_coords,'Evaluating field...'):
             zeta = self.PSI[i,:] * np.hstack([self.PHI,self.PHI]) @ amp_vec.T
            
-            ci = [ ind(itr_coord['x'],self.phys_ax['x'][:,0,0,0]),
+            ci = tuple([ ind(itr_coord['x'],self.phys_ax['x'][:,0,0,0]),
                    ind(itr_coord['y'],self.phys_ax['y'][0,:,0,0]),
-                   ind(itr_coord['t'],self.phys_ax['t'][0,0,0,:]) ]
+                   slice(0,None,1),
+                   ind(itr_coord['t'],self.phys_ax['t'][0,0,0,:]) ])
            
-            self.phys_ax[ci[0],ci[1],:,ci[2]][field] = zeta
+            #self.phys_ax[ci[0],ci[1],:,ci[2]][field] = zeta
+            self.phys_ax[ci][field] = zeta
         
         
     
