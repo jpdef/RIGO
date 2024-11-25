@@ -107,7 +107,6 @@ class InternalWaveSimulator:
                    slice(0,None,1),
                    ind(itr_coord['t'],self.phys_ax['t'][0,0,0,:]) ])
            
-            #self.phys_ax[ci[0],ci[1],:,ci[2]][field] = zeta
             self.phys_ax[ci][field] = zeta
         
         
