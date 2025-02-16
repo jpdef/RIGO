@@ -5,7 +5,7 @@
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.linalg import eig, eigh
-from scipy.integrate import trapz
+from scipy.integrate import trapz, cumtrapz
 
 class ModeSolver:
     """
@@ -70,7 +70,7 @@ class ModeSolver:
     def centered_2nd_derivative_fs(self):
         """
         Desc : Generates a tri-diagonal matrix for 2nd order 
-               derivative using a finite difference
+               derivative using a finite difference, with a free surface boundary
         Returns :
                 matrix : np matrix
         """
@@ -139,7 +139,7 @@ class ModeSolver:
     def centered_1st_derivative_fs(self):
         """
         Desc : Generates a tri-diagonal matrix for 1st order 
-               derivative using a finite difference
+               derivative using a finite difference with a free surface
         Returns :
                 matrix : np matrix
         """
@@ -194,16 +194,11 @@ class InternalWaveModes(ModeSolver):
             print("Frequency needs to be greater than coriolios")
             raise
         
-        elif( self.frequency > 2*np.sqrt(max(N2)) ):
+        elif( self.frequency > np.sqrt(max(N2)) ):
             print(frequency,np.sqrt(max(N2)))
             print("Frequency cannot exceed max stratfication")
             raise
         
-        elif( self.frequency > np.sqrt(max(N2)) ):
-            print("Halving frequency for dispersion's sake")
-            print(self.frequency," => ", self.frequency/2)
-            frequency /= 2
-            
         F = frequency**2 * np.ones(len(Z))    
         LH = np.diag(N2-F)
         super().__init__(Z,LH,boundary=[0,0],free_surface=free_surface)
@@ -224,7 +219,7 @@ class InternalWaveModes(ModeSolver):
             self.modes = (self.modes.T * scalar_gradient).T
     
     
-    def solve(self,frequency,num_modes,phase_speed_cutoff=0.02):
+    def solve(self,frequency,num_modes,phase_speed_cutoff=0.001):
         """
         Solves the matrix equation for mode shapes (eigenvectors) 
         and the phase speeds ( eigenvalues )
@@ -261,6 +256,36 @@ class InternalWaveModes(ModeSolver):
     def hwavenumber(self,mode_number):
         return self.hwavenumbers[mode_number].real
     
+    
+    def wkbj_solve(self,mode_cutoff=50,Nob=6.8):
+        """
+        Desc : Solves helmholtz equation using WKB
+               approximation
+        Params :
+           mode_cutoff : int
+              number of modes to calculate 1..mode_cutoff
+        Returns:
+               solution : array
+                 A solution as a function of the depth coordinate
+
+        """
+        
+        
+        #Stretch coordinate eta = 1/(No *B) int_{zbot}^z N(z') dz'
+        eta = np.pad( cumtrapz( np.sqrt(self.N2), self.Z ), (1,0) )
+        #WKB scaling factors
+        Nob = eta[-1]
+        sf  = np.sqrt(self.N2[0]/self.N2) 
+        
+        modes = np.zeros(shape=(len(self.Z),mode_cutoff))
+        hwavenumbers = np.zeros(mode_cutoff)
+        zn = np.arange(0,len(self.Z),1)
+        for j in range(1,mode_cutoff):
+            modes[:,j-1] = sf*np.sin((1/Nob)*np.pi*j*eta)
+            hwavenumbers[j-1] = (np.pi*j*np.sqrt(self.frequency - self.fo))/Nob
+        
+        return hwavenumbers, modes
+        
 
 class QuasiGeostrophicModes(ModeSolver):
     def __init__(self,N2,Z,frequency=0,scalar_gradient=None,free_surface=False,latitude=30):
@@ -287,7 +312,7 @@ class QuasiGeostrophicModes(ModeSolver):
     
     
 def coriolis(latitude):
-    #rotation rate of earth in cps
-    omega = 7.292115*1e-5/(2*np.pi) 
+    #rotation rate of earth in rad/s
+    omega = 7.292115*1e-5
     f = 2*omega*np.sin(np.pi*latitude/180)
     return f

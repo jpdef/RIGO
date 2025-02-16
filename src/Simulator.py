@@ -33,10 +33,6 @@ def progressbar(dataset,desc):
     return tqdm(iterator,ascii=True,total=len(dataset),leave=True,desc=desc)
     
             
-"""
-TODO allow the Mode List Object to be passed into the simulator instead of stratification 
-vector this goes down another level to the internal wave model object
-"""
 class InternalWaveSimulator:
     def __init__(self,physical_axis, parameters, energy, internal_wave_modes):
         """
@@ -103,9 +99,9 @@ class InternalWaveSimulator:
             zeta = self.PSI[i,:] * np.hstack([self.PHI,self.PHI]) @ amp_vec.T
            
             ci = tuple([ ind(itr_coord['x'],self.phys_ax['x'][:,0,0,0]),
-                   ind(itr_coord['y'],self.phys_ax['y'][0,:,0,0]),
-                   slice(0,None,1),
-                   ind(itr_coord['t'],self.phys_ax['t'][0,0,0,:]) ])
+                         ind(itr_coord['y'],self.phys_ax['y'][0,:,0,0]),
+                         slice(0,None,1),
+                         ind(itr_coord['t'],self.phys_ax['t'][0,0,0,:]) ])
            
             self.phys_ax[ci][field] = zeta
         
@@ -116,7 +112,12 @@ class InternalWaveSimulator:
         amp_vec = np.concatenate([ self.amplitudes[0,:],self.amplitudes[1,:] ])
         self.run_forward(amp_vec)
         
-    
+  
+    """
+    These functions define the basis functions of the linear model object. The horizontal dimensions
+    have planar waves which is a combination of the planar cosine and sine. The vertical dimensions use the 
+    modal_function to fill the space.
+    """
 
     def planar_cosine(self,o,m,t,K):
         k =  K*np.cos(t*np.pi/180)

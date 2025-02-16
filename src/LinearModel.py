@@ -21,7 +21,7 @@ def progressbar(dataset,desc):
 class LinearModel:
     """
     Desc:
-    A class to make general linear models with matrices
+    A class to make general linear models with matrices. 
     @ basis_function_generators (function) takes parameters produce a second function
             that is evaluate at a coordinate
     @ parameters (array) variables for the basis function e.g. k,l,m
@@ -115,61 +115,6 @@ class QuasiGeostrophicModel(LinearModel):
             qgmodes.append(m)
         return qgmodes
 
-        
-        
-    
-class BasisFunctions:
-
-    def __init__(self, function=None,**kwargs):
-        self.kwargs = kwargs
-        if function:
-            self.func = getattr(self,function)(kwargs)
-        
-    def __mul__(self,other):
-        l = len(self.kwargs)
-        def function(*args):
-            return self.func(*args[:l])*other.func(*args[l:])
-        b = BasisFunctions()
-        b.kwargs = {**self.kwargs, **other.kwargs}
-        b.func = function
-        return b
-
-    
-    def test(self, kwargs):
-        print(len(kwargs) )
-        
-        
-    def cosine(self, kwargs):
-        m = kwargs['m']
-        def function(*args):
-            x = args[0]
-            print('func2: ',np.cos(2*np.pi*m*x))
-            return  np.cos(2*np.pi*m*x)
-        
-        return function
-    
-    def cosine_2d(self, kwargs):
-        k = kwargs['k']
-        l = kwargs['l']
-        def function(*args):
-            x = args[0];y=args[1];
-            arg = 2*np.pi*(k*x + l*y)
-            return np.cos(arg)
-        
-        return function
-    
-    def cosine_2d_time(self, kwargs):
-        k = kwargs['l']
-        l = kwargs['k']
-        o = kwargs['o']
-        def function(*args):
-            x = args[0];y=args[1];t=args[2]
-            arg = 2*np.pi*(k*x + l*y - o*t)
-            print('func1:',np.cos(arg))
-            return np.cos(arg)
-        
-        return function
-    
     
 def iw_modal_cosine(o,m,t,K,iw_modes):
     #print('modal_cosine')
@@ -201,6 +146,7 @@ def iw_modal_sine(o,m,t,K,iw_modes):
         return ret.real
     
     return function
+
 
 def modal_plane_wave_c(K,t,m,o,modes):
     mode = modes[m]
