@@ -48,9 +48,16 @@ class ModeSolver:
         
     def solve(self,num_modes):
         if self.free_surface:
+            """
+            This takes much longer than a rigid boundary, because 
+            the free surface matrix makes the matrix non-hermitian
+            Free surface modes are useful for calculating the surface
+            expression but doesn't change the solution by much in the 
+            interior
+            """
             D2 = self.centered_2nd_derivative_fs()
             LH = self.LHM[:-1,:-1]
-            eigval,eigvec = eigh(LH,-D2)
+            eigval,eigvec = eig(LH,-D2)
             eigvec = np.vstack([eigvec,
                                self.bounds[1]*np.ones(self.npts+1)])
             
@@ -181,7 +188,6 @@ class InternalWaveModes(ModeSolver):
     def __init__(self,N2,Z,frequency,
                            latitude=30,
                            num_modes=100,
-                           scalar_gradient=None,
                            free_surface=False,
                            puvmodes=False):
         
@@ -203,21 +209,24 @@ class InternalWaveModes(ModeSolver):
         LH = np.diag(N2-F)
         super().__init__(Z,LH,boundary=[0,0],free_surface=free_surface)
         
+        """
+        Solves the vertical velocity/displacement modes
+        """
         self.hwavenumbers, self.modes = self.solve(frequency,num_modes=num_modes)
         self.normalize()
         
+        """
+        Solves the pressure, horiztonal velocity modes which are proportional
+        to the first vertical derivative of the displacement modes
+        """
         if puvmodes:
             if free_surface:
                 D1 = self.centered_1st_derivative_fs()
+            
             else:
                 D1 = self.centered_1st_derivative()
-                
-            self.modes = D1 @ self.modes 
+            self.dzmodes = D1 @ self.modes 
         
-        if scalar_gradient is not None:
-            #Multiple rows by each element in gradient
-            self.modes = (self.modes.T * scalar_gradient).T
-    
     
     def solve(self,frequency,num_modes,phase_speed_cutoff=0.001):
         """
