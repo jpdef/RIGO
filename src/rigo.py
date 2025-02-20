@@ -11,6 +11,7 @@ import itertools
 import os
 import sys
 import numpy as np
+import utils
 
 from Simulator import InternalWaveSimulator
 from ModeSolver import InternalWaveModes
@@ -19,11 +20,19 @@ tocph = (2*np.pi)/3600
 
 def make_vec(tuple_string):
     """
-    Takes a string tuple ('start_value','end_value','increment_value') and turns
-    it into a 1-dimensional numpy vector
+    Takes a string tuple 'start_value','end_value','increment_value' and turns
+    it into a 1-dimensional numpy vector, this can be concatenated by adding a & delimiter
+    'start_value_1','end_value_1','increment_value_1' & 'start_value_2','end_value_2','increment_value_2'
+    to create non-uniform grid spacing
     """
-    tuple_float  = tuple(float(x.strip()) for x in tuple_string.split(',')) 
-    return  np.arange( *tuple_float )
+    float_vec = np.array([])
+    list_tuples =  [x.strip() for x in tuple_string.split('&')]
+    for tuple_string in list_tuples:
+        tuple_float  = tuple(float(x.strip()) for x in tuple_string.split(','))
+        float_vec = np.concatenate( [float_vec,np.arange( *tuple_float )])
+
+    return float_vec
+
 
 def coriolis(latitude):
     #rotation rate of earth in rad/s
@@ -67,7 +76,7 @@ def build_parameter_space(config):
         - Mode numbers should be positive integer > 0 
         - Lowest frequency - df > f0 (inertial frequency)
     """
-    f0 = coriolis(30)
+    f0 = coriolis(30) # this needs to be in radian/seconds
     assert( all(modes > 0) )
     assert( (omegas[0] - np.diff(omegas)[0]) > f0 )   
 
@@ -112,9 +121,8 @@ def progressbar(dataset,desc):
     iterator = enumerate(dataset)
     return tqdm(iterator,ascii=True,total=len(dataset),leave=True,desc=desc)
 
-
-if __name__ == "__main__":
-    
+def run_rigo(): 
+    print('Running RIGO !!')
     #Load Arguments
     parser = ArgumentParser(description="RIGO (Random Inertia Gravity Oscillations)")
     parser = ArgumentParser(prefix_chars='@')
@@ -178,7 +186,10 @@ if __name__ == "__main__":
     
     #Write output to files
     utils.savenpy(output_filepath + '/' + 'parameters.npy',parameter_space )
+    utils.savenpy(output_filepath + '/' + 'energy.npy',energy )
     for k,p in progressbar(np.arange(0,ensemble_number,1),'Running Ensemble'):
         iws.run()
         utils.savenpy(output_filepath + '/' + ('iws_out_itr=%00d.npy' % k),iws.phys_ax)
-        
+
+if __name__ == "__main__":
+    run_rigo()
